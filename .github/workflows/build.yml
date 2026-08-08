@@ -1,6 +1,6 @@
 name: Build Release
 
-# 推送 main 分支或手动触发时，自动构建 Windows 安装包(.msi) 和 Android 安装包(.apk)
+# 推送 main 分支或手动触发时，自动构建 Windows 安装包(.exe) 和 Android 安装包(.apk)
 on:
   push:
     branches: [main]
@@ -39,24 +39,91 @@ jobs:
       - name: Build Windows (release)
         run: flutter build windows --release --dart-define-from-file=pili_release.json
 
-      - name: Create MSIX installer (.msi)
-        run: dart run msix:create
+      - name: Install InnoSetup
+        run: choco install innosetup -y
 
-      - name: Upload MSIX
-        uses: actions/upload-artifact@v7
-        with:
-          name: Windows-msi
-          path: build/windows/x64/runner/Release/*.msix
-
-      - name: Package portable build
+      - name: Prepare InnoSetup Chinese language
         shell: pwsh
-        run: Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "PiliPlus_windows_portable.zip"
+        run: |
+          $isDir = "${env:ProgramFiles(x86)}\Inno Setup 6"
+          if (-not (Test-Path $isDir)) { $isDir = "${env:ProgramFiles}\Inno Setup 6" }
+          Copy-Item "windows/packaging/exe/ChineseSimplified.isl" "$isDir/Languages/ChineseSimplified.isl" -Force
+          Write-Host "InnoSetup dir: $isDir"
 
-      - name: Upload portable zip
+      - name: Generate InnoSetup script
+        shell: pwsh
+        run: |
+          $version = $env:version
+          if ([string]::IsNullOrWhiteSpace($version)) { $version = '2.1.0' }
+          $iss = @"
+          [Setup]
+          AppId={{5ef970f9-2b9e-4155-b7d6-a9d4dbd6b226}}
+          AppVersion=$version
+          AppName=PiliPlus
+          AppPublisher=dom
+          AppPublisherURL=https://github.com/bggRGjQaUbCoE/PiliPlus
+          AppSupportURL=https://github.com/bggRGjQaUbCoE/PiliPlus
+          AppUpdatesURL=https://github.com/bggRGjQaUbCoE/PiliPlus
+          DefaultDirName={autopf}\PiliPlus
+          DisableProgramGroupPage=yes
+          OutputDir=windows\packaging\exe\out
+          OutputBaseFilename=PiliPlus-setup
+          Compression=lzma
+          SolidCompression=yes
+          SetupIconFile=windows\runner\resources\app_icon.ico
+          WizardStyle=modern
+          PrivilegesRequired=admin
+          ArchitecturesAllowed=x64
+          ArchitecturesInstallIn64BitMode=x64
+
+          [Code]
+          procedure KillOldProcess;
+          var ResultCode: Integer;
+          begin
+            Exec('taskkill', '/F /IM PiliPlus.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+          end;
+
+          function InitializeSetup(): Boolean;
+          begin
+            KillOldProcess;
+            Result := True;
+          end;
+
+          [Languages]
+          Name: "english"; MessagesFile: "compiler:Default.isl"
+          Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+
+          [Tasks]
+          Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
+          Name: "launchAtStartup"; Description: "{cm:AutoStartProgram,PiliPlus}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
+          [Files]
+          Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+          [Icons]
+          Name: "{autoprograms}\PiliPlus"; Filename: "{app}\PiliPlus.exe"
+          Name: "{autodesktop}\PiliPlus"; Filename: "{app}\PiliPlus.exe"; Tasks: desktopicon
+          Name: "{userstartup}\PiliPlus"; Filename: "{app}\PiliPlus.exe"; WorkingDir: "{app}"; Tasks: launchAtStartup
+
+          [Run]
+          Filename: "{app}\PiliPlus.exe"; Description: "{cm:LaunchProgram,PiliPlus}"; Flags: runascurrentuser nowait postinstall skipifsilent
+          "@
+          Set-Content -Path "windows/packaging/exe/PiliPlus.iss" -Value $iss -Encoding UTF8
+          Write-Host "Generated iss with version $version"
+
+      - name: Build installer (.exe)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
+          & $iscc "windows/packaging/exe/PiliPlus.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - name: Upload installer
         uses: actions/upload-artifact@v7
         with:
-          name: Windows-portable
-          path: PiliPlus_windows_portable.zip
+          name: Windows-setup-exe
+          path: windows/packaging/exe/out/*.exe
 
   build-android:
     name: Build Android
