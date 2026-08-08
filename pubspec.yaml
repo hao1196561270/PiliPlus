@@ -229,6 +229,7 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_native_splash: ^2.4.6
   jnigen: ^0.17.0
+  msix: ^3.16.0
 
 flutter_launcher_icons:
   android: true
@@ -274,3 +275,12 @@ flutter:
     - family: custom_icon
       fonts:
         - asset: assets/fonts/custom_icon.ttf
+
+msix_config:
+  display_name: PiliPlus
+  publisher_display_name: PiliPlus
+  identity_name: PiliPlus
+  msix_version: 2.1.0.0
+  logo_path: assets/images/logo/logo_2.png
+  tile_logo_path: assets/images/logo/logo_2.png
+  splash_logo_path: assets/images/logo/logo_2.png
